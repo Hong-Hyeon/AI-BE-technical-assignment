@@ -1,0 +1,1 @@
+# Factory pattern implementations for the talent analysis system 

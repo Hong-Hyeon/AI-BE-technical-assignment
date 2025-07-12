@@ -1,0 +1,12 @@
+fastapi[standard]
+psycopg2-binary
+openai
+python-dotenv
+langgraph
+langchain
+langchain-community
+langchain-core
+langchain-openai
+pandas
+pydantic
+numpy
