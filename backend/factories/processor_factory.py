@@ -49,7 +49,13 @@ class VectorSearchProcessor(DataProcessor):
         if text in self.embedding_cache:
             return self.embedding_cache[text]
         
-        embedding = self.llm_model.get_embeddings(text)
+        # Handle both LangChainOpenAIModel and direct embedding models
+        if hasattr(self.llm_model, 'get_embeddings'):
+            embedding = self.llm_model.get_embeddings(text)
+        else:
+            # Fallback for models without embeddings
+            embedding = [0.0] * 1536  # Default OpenAI embedding size
+            
         self.embedding_cache[text] = embedding
         return embedding
     

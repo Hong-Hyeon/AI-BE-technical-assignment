@@ -7,6 +7,8 @@ All routing logic has been separated into dedicated router modules.
 import uvicorn
 from app_factory import create_app
 
+from db import session
+
 # Create FastAPI application using the factory pattern
 app = create_app()
 

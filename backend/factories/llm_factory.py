@@ -6,41 +6,45 @@ from typing import List, Dict, Any, Optional
 from factories.base import LLMFactory, LLMModel
 import os
 from dotenv import load_dotenv
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
 load_dotenv()
 
 
-class OpenAIModel(LLMModel):
-    """OpenAI LLM model implementation."""
+class LangChainOpenAIModel(LLMModel):
+    """LangChain OpenAI model wrapper."""
     
     def __init__(self, model_name: str, api_key: Optional[str] = None):
         self.model_name = model_name
-        self.client = openai.OpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"))
+        self.chat_model = ChatOpenAI(
+            model=model_name,
+            api_key=api_key or os.getenv("OPENAI_API_KEY"),
+            temperature=0.1
+        )
+        self.embeddings_model = OpenAIEmbeddings(
+            model="text-embedding-3-small",
+            api_key=api_key or os.getenv("OPENAI_API_KEY")
+        )
     
     def generate(self, prompt: str, **kwargs) -> str:
-        """Generate response using OpenAI API."""
+        """Generate response using LangChain ChatOpenAI."""
         try:
-            response = self.client.chat.completions.create(
-                model=self.model_name,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=kwargs.get("temperature", 0.7),
-                max_tokens=kwargs.get("max_tokens", 1000),
-                top_p=kwargs.get("top_p", 1.0),
-            )
-            return response.choices[0].message.content
+            from langchain_core.messages import HumanMessage
+            response = self.chat_model.invoke([HumanMessage(content=prompt)])
+            return response.content
         except Exception as e:
             raise Exception(f"OpenAI API error: {str(e)}")
     
     def get_embeddings(self, text: str) -> List[float]:
-        """Get embeddings using OpenAI API."""
+        """Get embeddings using LangChain OpenAIEmbeddings."""
         try:
-            response = self.client.embeddings.create(
-                model="text-embedding-3-small",
-                input=text
-            )
-            return response.data[0].embedding
+            return self.embeddings_model.embed_query(text)
         except Exception as e:
             raise Exception(f"OpenAI embeddings error: {str(e)}")
+    
+    def get_langchain_model(self):
+        """Get the underlying LangChain ChatOpenAI model for direct use."""
+        return self.chat_model
 
 
 class OpenAIFactory(LLMFactory):
@@ -59,13 +63,13 @@ class OpenAIFactory(LLMFactory):
         if not self.api_key:
             raise ValueError("OpenAI API key is required")
     
-    def create_llm(self, model_type: str, **kwargs) -> OpenAIModel:
+    def create_llm(self, model_type: str, **kwargs) -> LangChainOpenAIModel:
         """Create OpenAI LLM model instance."""
         if model_type not in self.SUPPORTED_MODELS:
             raise ValueError(f"Unsupported model type: {model_type}")
         
         model_name = self.SUPPORTED_MODELS[model_type]
-        return OpenAIModel(model_name, self.api_key)
+        return LangChainOpenAIModel(model_name, self.api_key)
     
     def get_supported_models(self) -> List[str]:
         """Get list of supported OpenAI models."""

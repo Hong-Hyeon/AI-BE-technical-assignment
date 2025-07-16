@@ -42,7 +42,7 @@ class AppFactory:
             print("✅ LLM Factory Manager initialized")
             
             # Initialize Data Source Manager
-            data_source_factory = DefaultDataSourceFactory("../example_datas")
+            data_source_factory = DefaultDataSourceFactory("./example_datas")
             self.data_source_manager = DataSourceManager(data_source_factory)
             print("✅ Data Source Manager initialized")
             
@@ -98,7 +98,7 @@ class AppFactory:
         
         app = FastAPI(
             title="SearchRight AI API",
-            description="Factory Pattern을 활용한 AI 인재 경험 분석 시스템",
+            description="SearchRight Backend 과제",
             version="1.0.0",
             lifespan=lifespan
         )

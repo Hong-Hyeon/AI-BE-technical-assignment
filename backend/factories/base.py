@@ -101,3 +101,17 @@ class ExperienceAnalyzer(ABC):
     def analyze(self, talent_data: TalentData, context: Dict[str, Any]) -> AnalysisResult:
         """Analyze talent data and return experience tags."""
         pass 
+
+
+class BasePromptsFactory(ABC):
+    """Abstract factory for prompts."""
+    
+    @abstractmethod
+    def get_summary_prompts(self) -> Dict[str, str]:
+        """Get all prompts."""
+        pass
+
+    @abstractmethod
+    def create_prompts(self, prompt_type: str):
+        """Create a prompts instance."""
+        pass

@@ -2,31 +2,8 @@
 Analysis router for talent analysis endpoints.
 """
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from typing import Dict, Any, List
 from .base import BaseRouter
-from models.talent import AnalysisResult
-
-
-class AnalyzeRequest(BaseModel):
-    """Request model for talent analysis."""
-    talent_id: str
-    analyzer_type: str = "default"
-    llm_provider: str = "openai"
-    llm_model: str = "gpt-4o-mini"
-
-
-class AnalyzeResponse(BaseModel):
-    """Response model for talent analysis."""
-    result: AnalysisResult
-    success: bool
-    message: str
-
-
-class VectorSearchRequest(BaseModel):
-    """Request model for vector search."""
-    query: str
-    documents: List[Dict[str, Any]]
+from schema.analysis import AnalyzeRequest, AnalyzeResponse
 
 
 class AnalysisRouter(BaseRouter):
@@ -56,57 +33,23 @@ class AnalysisRouter(BaseRouter):
             self.check_managers()
             
             try:
-                # 1. 인재 데이터 로드 (DataSourceFactory 활용)
-                talent_data = self.data_source_manager.get_talent_data(talent_id)
-                
-                # 2. 컨텍스트 데이터 수집 (회사 정보, 뉴스 등)
-                company_data = {}
-                news_data = {}
-                
-                for position in talent_data.positions:
-                    try:
-                        company_info = self.data_source_manager.get_company_data(position.company_name)
-                        company_data[position.company_name] = company_info
-                        
-                        # 뉴스 데이터도 수집
-                        try:
-                            news_info = self.data_source_manager.get_news_data(position.company_name)
-                            news_data[position.company_name] = news_info
-                        except ValueError:
-                            pass
-                    except ValueError:
-                        # 회사 데이터가 없는 경우 무시
-                        pass
-                
-                # 3. 컨텍스트 강화 (ProcessorFactory 활용)
-                if enrich_context:
-                    enriched_data = self.processor_manager.process_data("context_enrichment", {
-                        "talent_data": talent_data.dict(),
-                        "company_data": company_data,
-                        "news_data": news_data
-                    })
-                    context = enriched_data.get("context", {})
-                else:
-                    context = {
-                        "companies": company_data,
-                        "news": news_data
-                    }
+                # LangGraph 워크플로우를 통한 통합 분석 실행
+                # (전처리, 벡터 검색, 교육/경력 분석이 모두 포함됨)
+                from workflows.talent_analysis import talent_analysis_workflow
                 
                 # 4. LLM 모델 생성 (LLMFactory 활용)
                 llm_model_instance = self.llm_factory_manager.create_llm(llm_provider, llm_model)
                 
-                # 5. 분석기 생성 및 실행 (ExperienceAnalyzerFactory 활용)
-                from factories.experience_analyzer_factory import DefaultExperienceAnalyzerFactory
-                analyzer_factory = DefaultExperienceAnalyzerFactory(llm_model_instance)
-                from factories.experience_analyzer_factory import ExperienceAnalyzerManager
-                analyzer_manager = ExperienceAnalyzerManager(analyzer_factory)
-                
-                result = analyzer_manager.analyze_talent(talent_data, context, analyzer_type)
+                # 5. 통합 워크플로우 실행 (전처리 + 벡터 검색 + 분석)
+                result = await talent_analysis_workflow.run_analysis(
+                    talent_id=talent_id,
+                    llm_model=llm_model_instance
+                )
                 
                 return AnalyzeResponse(
                     result=result,
                     success=True,
-                    message=f"Successfully analyzed talent {talent_id}"
+                    message=f"Successfully analyzed talent {talent_id} with vector search enhancement"
                 )
                 
             except ValueError as e:

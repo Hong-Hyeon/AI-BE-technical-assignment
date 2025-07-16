@@ -14,23 +14,6 @@ class DefaultExperienceAnalyzer(ExperienceAnalyzer):
     
     def __init__(self, llm_model: LLMModel):
         self.llm_model = llm_model
-        self.experience_tags = [
-            "상위권대학교",
-            "대규모 회사 경험",
-            "성장기스타트업 경험",
-            "리더십",
-            "대용량데이터처리경험",
-            "IPO",
-            "M&A 경험",
-            "신규 투자 유치 경험",
-            "글로벌 런칭 경험",
-            "B2C 도메인 경험",
-            "B2B 도메인 경험",
-            "물류 도메인 경험",
-            "핀테크 경험",
-            "AI/ML 경험",
-            "창업 경험"
-        ]
     
     def analyze(self, talent_data: TalentData, context: Dict[str, Any]) -> AnalysisResult:
         """Analyze talent data and return experience tags."""
@@ -52,7 +35,7 @@ class DefaultExperienceAnalyzer(ExperienceAnalyzer):
             experience_tags=experience_tags,
             processing_time=processing_time,
             metadata={
-                "model_used": self.llm_model.model_name,
+                "model_used": getattr(self.llm_model, 'model_name', 'unknown'),
                 "context_sources": list(context.keys()),
                 "prompt_length": len(prompt),
                 "response_length": len(response)

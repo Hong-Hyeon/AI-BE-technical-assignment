@@ -2,11 +2,14 @@
 Data source factory for handling talent, company, and news data.
 """
 import json
-import pandas as pd
 from typing import Dict, Any, List
+import os
+import glob
+
 from factories.base import DataSourceFactory, DataLoader
 from models.talent import TalentData
-import os
+from db.session import SessionLocal
+from models.company import Company, CompanyNews
 
 
 class TalentDataLoader(DataLoader):
@@ -47,77 +50,67 @@ class TalentDataLoader(DataLoader):
 class CompanyDataLoader(DataLoader):
     """Loader for company JSON data."""
     
-    def __init__(self, data_dir: str = "example_datas"):
-        self.data_dir = data_dir
+    def __init__(self):
+        pass
     
     def load(self, identifier: str) -> Dict[str, Any]:
         """Load company data by identifier (e.g., 'company_ex1_비바리퍼블리카')."""
         try:
-            file_path = os.path.join(self.data_dir, f"{identifier}.json")
-            with open(file_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            return data
+            return self.get_company_data_from_db(identifier)
         except FileNotFoundError:
             raise ValueError(f"Company data not found: {identifier}")
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSON in company data {identifier}: {str(e)}")
-    
-    def load_by_company_name(self, company_name: str) -> Dict[str, Any]:
-        """Load company data by company name."""
-        # Map company names to file identifiers
-        company_mapping = {
-            "비바리퍼블리카": "company_ex1_비바리퍼블리카",
-            "토스": "company_ex1_비바리퍼블리카",
-            "네이버": "company_ex2_네이버",
-            "리디": "company_ex3_리디",
-            "엘박스": "company_ex4_엘박스",
-            "카사코리아": "company_ex5_카사코리아",
-            "야놀자": "company_ex6_야놀자",
-            "시어스랩": "compnay_ex7_시어스랩"
-        }
         
-        identifier = company_mapping.get(company_name)
-        if not identifier:
-            raise ValueError(f"No data available for company: {company_name}")
-        
-        return self.load(identifier)
+    def get_company_data_from_db(self, company_name: str) -> Dict[str, Any]:
+        """Get company data from database."""
+        try:
+            db = SessionLocal()
+            company_data = db.query(Company).filter(Company.name == company_name).first()
+            return company_data
+        except Exception as e:
+            raise ValueError(f"Error getting company data from database: {e}")
 
 
 class NewsDataLoader(DataLoader):
     """Loader for news CSV data."""
     
-    def __init__(self, data_dir: str = "example_datas"):
-        self.data_dir = data_dir
-        self.news_file = os.path.join(data_dir, "company_news.csv")
+    def __init__(self):
+        pass
     
     def load(self, identifier: str) -> Dict[str, Any]:
         """Load news data by company identifier."""
         try:
-            df = pd.read_csv(self.news_file)
-            # Filter news by company name
-            company_news = df[df['company_name'] == identifier]
+            db = SessionLocal()
+            company_news = db.query(CompanyNews).filter(
+                CompanyNews.company_id == db.query(Company).filter(
+                    Company.name == identifier
+                ).first().id
+            ).all()
             
-            return {
+            result = {
                 'company_name': identifier,
                 'news_count': len(company_news),
-                'news_data': company_news.to_dict('records')
+                'news_data': company_news
             }
-        except FileNotFoundError:
-            raise ValueError(f"News data file not found: {self.news_file}")
-        except pd.errors.EmptyDataError:
-            raise ValueError(f"News data file is empty: {self.news_file}")
+
+            return result
+        except Exception as e:
+            raise ValueError(f"Error loading news data: {str(e)}")
     
     def load_all_news(self) -> Dict[str, Any]:
         """Load all news data."""
         try:
-            df = pd.read_csv(self.news_file)
+            db = SessionLocal()
+            company_news = db.query(CompanyNews).all()
+            companies = db.query(Company).all()
             return {
-                'total_news_count': len(df),
-                'companies': df['company_name'].unique().tolist(),
-                'news_data': df.to_dict('records')
+                'total_news_count': len(company_news),
+                'companies': [company.name for company in companies],
+                'news_data': company_news
             }
-        except FileNotFoundError:
-            raise ValueError(f"News data file not found: {self.news_file}")
+        except Exception as e:
+            raise ValueError(f"Error getting news data from database: {e}")
 
 
 class DefaultDataSourceFactory(DataSourceFactory):
@@ -129,8 +122,8 @@ class DefaultDataSourceFactory(DataSourceFactory):
         self.data_dir = data_dir
         self.loaders = {
             "talent": TalentDataLoader(data_dir),
-            "company": CompanyDataLoader(data_dir),
-            "news": NewsDataLoader(data_dir)
+            "company": CompanyDataLoader(),
+            "news": NewsDataLoader()
         }
     
     def create_data_loader(self, source_type: str) -> DataLoader:
@@ -148,7 +141,7 @@ class DefaultDataSourceFactory(DataSourceFactory):
 class DataSourceManager:
     """Manager for data sources with caching."""
     
-    def __init__(self, factory: DataSourceFactory):
+    def __init__(self, factory: DefaultDataSourceFactory):
         self.factory = factory
         self.cache: Dict[str, Dict[str, Any]] = {}
     
@@ -174,7 +167,7 @@ class DataSourceManager:
             return self.cache[cache_key]
         
         loader = self.factory.create_data_loader("company")
-        data = loader.load_by_company_name(company_name)
+        data = loader.load(company_name)
         
         if use_cache:
             self.cache[cache_key] = data

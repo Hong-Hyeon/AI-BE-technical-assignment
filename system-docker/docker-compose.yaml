@@ -44,3 +44,5 @@ services:
       TZ: Asia/Seoul
     volumes:
       - ../.env:/SEARCHRIGHT/.env
+    # DEV일때는 항상 재시작
+    restart: always

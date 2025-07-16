@@ -10,3 +10,4 @@ langchain-openai
 pandas
 pydantic
 numpy
+pgvector
