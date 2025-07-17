@@ -107,14 +107,27 @@ class VectorSearchSettings(BaseSettings):
     max_search_results: int = Field(default=100, description="Maximum search results")
     similarity_threshold: float = Field(default=0.7, description="Similarity threshold")
     
-    # Embedding settings
-    embedding_model: str = Field(default="text-embedding-ada-002", description="Embedding model")
+    # Embedding settings - Updated to match actual implementation
+    embedding_model: str = Field(default="text-embedding-3-small", description="OpenAI embedding model")
     embedding_dimensions: int = Field(default=1536, description="Embedding dimensions")
+    batch_size: int = Field(default=50, description="Embedding batch size for optimization")
+    cache_enabled: bool = Field(default=True, description="Enable embedding cache")
+    cache_ttl_hours: int = Field(default=24, description="Cache TTL in hours")
+    
+    # Performance settings
+    max_concurrent_requests: int = Field(default=5, description="Max concurrent embedding requests")
+    request_timeout: int = Field(default=30, description="Request timeout in seconds")
     
     @field_validator('similarity_threshold')
     def validate_similarity_threshold(cls, v):
         if not 0 <= v <= 1:
             raise ValueError('Similarity threshold must be between 0 and 1')
+        return v
+    
+    @field_validator('batch_size')
+    def validate_batch_size(cls, v):
+        if v < 1 or v > 100:
+            raise ValueError('Batch size must be between 1 and 100')
         return v
     
     model_config = {

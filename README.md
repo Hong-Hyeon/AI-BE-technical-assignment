@@ -226,6 +226,52 @@ docker-compose build
 docker-compose up -d
 ```
 
+### 🚀 **최신 성능 최적화 시스템**
+
+프로젝트에 **평가 기준에 따른 포괄적인 개선사항**이 구현되었습니다:
+
+#### 1️⃣ **토큰 사용량 최적화** (Problem-Solving Approach)
+- **배치 LLM 처리**: 여러 요청을 단일 호출로 통합하여 토큰 비용 절약
+- **프롬프트 압축**: 불필요한 구문 제거 및 약어 사용으로 토큰 사용량 감소
+- **토큰 예산 관리**: $20 예산 한도 내에서 실시간 사용량 추적
+- **스마트 전략 선택**: 데이터 크기에 따른 최적 처리 방식 자동 선택
+
+#### 2️⃣ **배치 임베딩 처리** (Problem-Solving Approach)  
+- **OpenAI API 최적화**: 최대 100개 텍스트를 한 번에 임베딩 생성
+- **지능형 캐싱**: 24시간 TTL 캐시로 중복 임베딩 생성 방지
+- **비용 추적**: 실시간 임베딩 비용 모니터링 ($0.00002/1K tokens)
+- **병렬 처리**: 대용량 배치를 청크 단위로 병렬 처리
+
+#### 3️⃣ **PostgreSQL pgvector 최적화** (LLM Application Architecture)
+- **HNSW 인덱스**: 중간 규모 데이터셋용 고성능 벡터 인덱스
+- **IVFFlat 인덱스**: 대용량 데이터셋용 메모리 효율적 인덱스  
+- **쿼리 성능 분석**: EXPLAIN ANALYZE를 통한 실시간 성능 모니터링
+- **동적 인덱스 관리**: 데이터 크기에 따른 최적 인덱스 자동 선택
+
+#### 4️⃣ **실시간 성능 모니터링** (API Design & Implementation)
+- **API 메트릭**: 응답 시간, 에러율, 토큰 사용량 실시간 추적
+- **시스템 리소스**: CPU, 메모리, 디스크 사용률 모니터링
+- **지능형 알림**: 임계값 기반 자동 알림 및 해결 상태 추적
+- **성능 트렌드**: 시간대별 성능 분석 및 트렌드 예측
+
+#### 5️⃣ **헬스 체크 & 모니터링 API** (API Design & Implementation)
+```bash
+# 시스템 상태 확인
+GET /monitoring/health
+
+# 실시간 성능 메트릭
+GET /monitoring/metrics
+
+# 최적화 보고서
+GET /monitoring/optimization-report
+
+# 활성 알림 조회
+GET /monitoring/alerts
+
+# 데이터베이스 성능 분석
+GET /monitoring/database/performance
+```
+
 ### 📊 완전한 테스트 인프라스트럭처
 
 프로젝트에 포괄적인 단위 테스트 시스템이 구축되었습니다:
