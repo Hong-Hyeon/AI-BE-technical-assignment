@@ -212,7 +212,19 @@ flowchart LR
 
 ---
 
-## 🆕 최근 추가된 기능들
+## 🆕 추가된 기능들
+
+### 서버 실행방법
+```bash
+# .env 환경 구축
+cp .env.local .env
+
+cd system-docker
+
+docker-compose build
+# Docker 컨테이너 실행
+docker-compose up -d
+```
 
 ### 📊 완전한 테스트 인프라스트럭처
 
