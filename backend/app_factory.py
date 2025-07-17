@@ -116,7 +116,7 @@ class AppFactory:
         try:
             # Initialize routers
             root_router = RootRouter()
-            health_router = HealthRouter()
+            # health_router = HealthRouter()
             analysis_router = AnalysisRouter()
             vector_search_router = VectorSearchRouter()
             
@@ -139,7 +139,7 @@ class AppFactory:
             
             self.routers = [
                 root_router,
-                health_router,
+                # health_router,
                 analysis_router,
                 vector_search_router
             ]
