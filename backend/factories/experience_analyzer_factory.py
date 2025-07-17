@@ -71,7 +71,7 @@ class DefaultExperienceAnalyzer(ExperienceAnalyzer):
                 experience_tags=experience_tags,
                 processing_time=0.0,  # Will be calculated by caller
                 timestamp=None,  # Will be set by caller
-                metadata={"analyzer_type": "default", "prompt_factory_used": True}
+                # metadata={"analyzer_type": "default", "prompt_factory_used": True}
             )
             
         except Exception as e:
@@ -87,7 +87,7 @@ class DefaultExperienceAnalyzer(ExperienceAnalyzer):
                 ],
                 processing_time=0.0,
                 timestamp=None,
-                metadata={"analyzer_type": "default", "error": str(e)}
+                # metadata={"analyzer_type": "default", "error": str(e)}
             )
     
     def _extract_positions_info(self, talent_data: TalentData) -> str:

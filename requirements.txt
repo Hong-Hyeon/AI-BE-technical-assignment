@@ -9,5 +9,6 @@ langchain-core
 langchain-openai
 pandas
 pydantic
+pydantic-settings
 numpy
 pgvector

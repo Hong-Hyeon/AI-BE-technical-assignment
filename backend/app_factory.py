@@ -90,13 +90,16 @@ class AppFactory:
             
             # Initialize Experience Analyzer Manager
             self.logger.info("Initializing Experience Analyzer Manager...")
-            analyzer_factory = DefaultExperienceAnalyzerFactory()
+            # Create default LLM model for the analyzer factory
+            default_llm = self.llm_factory_manager.create_llm("openai", "gpt-3.5-turbo")
+            analyzer_factory = DefaultExperienceAnalyzerFactory(default_llm)
             self.experience_analyzer_manager = ExperienceAnalyzerManager(analyzer_factory)
             self.logger.info("✅ Experience Analyzer Manager initialized")
             
             # Initialize Processor Manager
             self.logger.info("Initializing Processor Manager...")
-            processor_factory = DefaultProcessorFactory()
+            # Use the same LLM model for processor factory
+            processor_factory = DefaultProcessorFactory(default_llm)
             self.processor_manager = ProcessorManager(processor_factory)
             self.logger.info("✅ Processor Manager initialized")
             
@@ -111,12 +114,34 @@ class AppFactory:
         self.logger.info("🛠️ Initializing routers...")
         
         try:
-            # Initialize routers with container (if they support it)
+            # Initialize routers
+            root_router = RootRouter()
+            health_router = HealthRouter()
+            analysis_router = AnalysisRouter()
+            vector_search_router = VectorSearchRouter()
+            
+            # Set managers for routers that inherit from BaseRouter
+            if hasattr(analysis_router, 'set_managers'):
+                analysis_router.set_managers(
+                    self.llm_factory_manager,
+                    self.data_source_manager,
+                    self.experience_analyzer_manager,
+                    self.processor_manager
+                )
+                
+            if hasattr(vector_search_router, 'set_managers'):
+                vector_search_router.set_managers(
+                    self.llm_factory_manager,
+                    self.data_source_manager,
+                    self.experience_analyzer_manager,
+                    self.processor_manager
+                )
+            
             self.routers = [
-                RootRouter(),
-                HealthRouter(),
-                AnalysisRouter(),
-                VectorSearchRouter()
+                root_router,
+                health_router,
+                analysis_router,
+                vector_search_router
             ]
             
             self.logger.info(f"✅ {len(self.routers)} routers initialized")
@@ -236,5 +261,4 @@ def create_app() -> FastAPI:
     return app
 
 
-# Create the FastAPI application instance
-app = create_app() 
+# Create the FastAPI application instance 

@@ -11,7 +11,7 @@ This module provides:
 
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Union
-from pydantic import Field, validator
+from pydantic import Field, field_validator
 from enum import Enum
 
 from .base import (
@@ -59,39 +59,41 @@ class AnalysisProgressEnum(str, Enum):
     FAILED = "failed"
 
 
-class LLMConfiguration(BaseSchema, ConfigurationMixin):
+class LLMConfiguration(ConfigurationMixin):
     """LLM configuration for analysis."""
     provider: ProviderEnum = Field(ProviderEnum.OPENAI, description="LLM provider")
     model: LLMModelEnum = Field(LLMModelEnum.GPT_4O_MINI, description="LLM model")
     temperature: float = Field(0.7, ge=0.0, le=1.0, description="LLM temperature")
     max_tokens: int = Field(1500, ge=100, le=4000, description="Maximum tokens")
     
-    @validator('temperature')
+    @field_validator('temperature')
     def validate_temperature(cls, v):
         if not 0.0 <= v <= 1.0:
             raise ValueError('Temperature must be between 0.0 and 1.0')
         return v
     
-    @validator('model', pre=True)
-    def validate_model_provider_compatibility(cls, v, values):
+    @field_validator('model', mode='before')
+    def validate_model_provider_compatibility(cls, v, info):
         """Validate model is compatible with provider."""
-        provider = values.get('provider')
-        if provider == ProviderEnum.OPENAI and not v.startswith(('gpt-', 'text-')):
-            raise ValueError(f'Model {v} is not compatible with OpenAI provider')
-        elif provider == ProviderEnum.ANTHROPIC and not v.startswith('claude-'):
-            raise ValueError(f'Model {v} is not compatible with Anthropic provider')
-        elif provider == ProviderEnum.GOOGLE and not v.startswith('gemini-'):
-            raise ValueError(f'Model {v} is not compatible with Google provider')
+        # In Pydantic v2, we need to access data from ValidationInfo
+        if hasattr(info, 'data') and 'provider' in info.data:
+            provider = info.data.get('provider')
+            if provider == ProviderEnum.OPENAI and not v.startswith(('gpt-', 'text-')):
+                raise ValueError(f'Model {v} is not compatible with OpenAI provider')
+            elif provider == ProviderEnum.ANTHROPIC and not v.startswith('claude-'):
+                raise ValueError(f'Model {v} is not compatible with Anthropic provider')
+            elif provider == ProviderEnum.GOOGLE and not v.startswith('gemini-'):
+                raise ValueError(f'Model {v} is not compatible with Google provider')
         return v
 
 
-class VectorSearchConfiguration(BaseSchema, ConfigurationMixin):
+class VectorSearchConfiguration(ConfigurationMixin):
     """Vector search configuration."""
     similarity_threshold: float = Field(0.7, ge=0.0, le=1.0, description="Similarity threshold")
     max_results: int = Field(10, ge=1, le=100, description="Maximum search results")
     index_name: Optional[str] = Field(None, description="Custom index name")
     
-    @validator('similarity_threshold')
+    @field_validator('similarity_threshold')
     def validate_similarity_threshold(cls, v):
         if not 0.0 <= v <= 1.0:
             raise ValueError('Similarity threshold must be between 0.0 and 1.0')
@@ -104,9 +106,9 @@ class AnalysisOptions(BaseSchema):
     include_confidence_scores: bool = Field(True, description="Include confidence scores")
     include_source_references: bool = Field(False, description="Include source document references")
     custom_prompt_additions: Optional[str] = Field(None, description="Additional prompt instructions")
-    analysis_depth: str = Field("standard", regex="^(quick|standard|detailed)$", description="Analysis depth")
+    analysis_depth: str = Field("standard", pattern="^(quick|standard|detailed)$", description="Analysis depth")
     
-    @validator('custom_prompt_additions')
+    @field_validator('custom_prompt_additions')
     def validate_custom_prompt(cls, v):
         if v and len(v) > 500:
             raise ValueError('Custom prompt additions cannot exceed 500 characters')
@@ -129,22 +131,22 @@ class AnalyzeRequest(BaseRequest, ConfigurationMixin):
     
     # Additional context
     context: Optional[Dict[str, Any]] = Field(None, description="Additional context for analysis")
-    priority: str = Field("medium", regex="^(low|medium|high|critical)$", description="Analysis priority")
+    priority: str = Field("medium", pattern="^(low|medium|high|critical)$", description="Analysis priority")
     
-    @validator('talent_id')
+    @field_validator('talent_id')
     def validate_talent_id(cls, v):
         if not v or len(v.strip()) < 3:
             raise ValueError('Talent ID must be at least 3 characters')
         return v.strip()
     
-    @validator('context')
+    @field_validator('context')
     def validate_context(cls, v):
         if v and len(str(v)) > 2000:
             raise ValueError('Context data cannot exceed 2000 characters when serialized')
         return v
 
 
-class AnalysisProgress(BaseSchema, TimestampMixin):
+class AnalysisProgress(TimestampMixin):
     """Analysis progress tracking."""
     stage: AnalysisProgressEnum = Field(..., description="Current analysis stage")
     progress_percentage: int = Field(0, ge=0, le=100, description="Progress percentage")
@@ -153,7 +155,7 @@ class AnalysisProgress(BaseSchema, TimestampMixin):
     error_message: Optional[str] = Field(None, description="Error message if failed")
 
 
-class AnalysisMetadata(BaseSchema, TimestampMixin):
+class AnalysisMetadata(TimestampMixin):
     """Metadata about the analysis process."""
     analysis_id: str = Field(..., description="Unique analysis identifier")
     talent_id: str = Field(..., description="Talent identifier")
@@ -180,14 +182,12 @@ class AnalyzeResponse(BaseResponse):
     """Response model for talent analysis."""
     analysis_id: str = Field(..., description="Unique analysis identifier")
     result: Optional[AnalysisResult] = Field(None, description="Analysis result")
-    metadata: AnalysisMetadata = Field(..., description="Analysis metadata")
     progress: Optional[AnalysisProgress] = Field(None, description="Current progress if still running")
     
     @classmethod
     def create_async_response(
         cls,
         analysis_id: str,
-        metadata: AnalysisMetadata,
         message: str = "Analysis started successfully",
         trace_id: Optional[str] = None
     ) -> 'AnalyzeResponse':
@@ -195,7 +195,6 @@ class AnalyzeResponse(BaseResponse):
         return cls(
             analysis_id=analysis_id,
             result=None,
-            metadata=metadata,
             progress=AnalysisProgress(
                 stage=AnalysisProgressEnum.INITIALIZING,
                 progress_percentage=0,
@@ -210,7 +209,6 @@ class AnalyzeResponse(BaseResponse):
         cls,
         analysis_id: str,
         result: AnalysisResult,
-        metadata: AnalysisMetadata,
         message: str = "Analysis completed successfully",
         trace_id: Optional[str] = None
     ) -> 'AnalyzeResponse':
@@ -218,7 +216,6 @@ class AnalyzeResponse(BaseResponse):
         return cls(
             analysis_id=analysis_id,
             result=result,
-            metadata=metadata,
             progress=AnalysisProgress(
                 stage=AnalysisProgressEnum.COMPLETED,
                 progress_percentage=100,
@@ -235,13 +232,13 @@ class VectorSearchRequest(BaseRequest):
     documents: List[Dict[str, Any]] = Field(..., min_items=1, description="Documents to search")
     config: VectorSearchConfiguration = Field(default_factory=VectorSearchConfiguration, description="Search configuration")
     
-    @validator('query')
+    @field_validator('query')
     def validate_query(cls, v):
         if len(v.strip()) < 2:
             raise ValueError('Query must be at least 2 characters')
         return v.strip()
     
-    @validator('documents')
+    @field_validator('documents')
     def validate_documents(cls, v):
         if not v:
             raise ValueError('At least one document is required')
@@ -289,7 +286,7 @@ class AnalysisStatusRequest(BaseRequest):
     """Request model for checking analysis status."""
     analysis_id: str = Field(..., description="Analysis identifier to check")
     
-    @validator('analysis_id')
+    @field_validator('analysis_id')
     def validate_analysis_id(cls, v):
         if not v or len(v.strip()) < 10:
             raise ValueError('Analysis ID must be at least 10 characters')
@@ -315,7 +312,7 @@ class AnalysisListRequest(BaseRequest):
     page: int = Field(1, ge=1, description="Page number")
     page_size: int = Field(20, ge=1, le=100, description="Items per page")
     
-    @validator('date_from', 'date_to')
+    @field_validator('date_from', 'date_to')
     def validate_dates(cls, v):
         if v and v > datetime.utcnow():
             raise ValueError('Date cannot be in the future')
@@ -334,7 +331,7 @@ class BulkAnalysisRequest(BaseRequest):
     llm_config: LLMConfiguration = Field(default_factory=LLMConfiguration, description="LLM configuration")
     options: AnalysisOptions = Field(default_factory=AnalysisOptions, description="Analysis options")
     
-    @validator('talent_ids')
+    @field_validator('talent_ids')
     def validate_talent_ids(cls, v):
         if len(set(v)) != len(v):
             raise ValueError('Duplicate talent IDs are not allowed')

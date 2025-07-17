@@ -2,9 +2,14 @@
 Analysis router for talent analysis endpoints.
 """
 import time
+import uuid
+from datetime import datetime
 from fastapi import APIRouter, HTTPException, Request
 from .base import BaseRouter
-from schema.analysis import AnalyzeRequest, AnalyzeResponse
+from schema.analysis import (
+    AnalyzeRequest, AnalyzeResponse, LLMModelEnum
+)
+from schema.base import ProviderEnum
 from config.logging_config import get_api_logger
 
 
@@ -40,7 +45,7 @@ class AnalysisRouter(BaseRouter):
             api_start_time = time.time()
             client_ip = request.client.host if request.client else "unknown"
             
-                        # Log API request
+            # Log API request
             self.logger.info(f"🔄 Analysis API called - talent_id: {talent_id} | "
                              f"llm: {llm_provider}/{llm_model} | "
                              f"analyzer: {analyzer_type} | "
@@ -76,7 +81,11 @@ class AnalysisRouter(BaseRouter):
                                  f"total_api_time: {api_duration:.2f}s | "
                                  f"tags_generated: {len(result.experience_tags)}")
                 
+                # Create simplified response without metadata
+                analysis_id = str(uuid.uuid4())
+                
                 response = AnalyzeResponse(
+                    analysis_id=analysis_id,
                     result=result,
                     success=True,
                     message=f"Successfully analyzed talent {talent_id} with vector search enhancement"
@@ -114,14 +123,14 @@ class AnalysisRouter(BaseRouter):
             
             # Log POST request
             self.logger.info(f"🔄 Analysis POST API called - talent_id: {request_data.talent_id} | "
-                           f"client_ip: {client_ip}")
+                             f"client_ip: {client_ip}")
             
             return await analyze_talent_get(
                 talent_id=request_data.talent_id,
                 request=request,
-                analyzer_type=request_data.analyzer_type,
-                llm_provider=request_data.llm_provider,
-                llm_model=request_data.llm_model
+                analyzer_type="default",  # Use default since AnalyzeRequest doesn't have this field
+                llm_provider=request_data.llm_config.provider.value,
+                llm_model=request_data.llm_config.model.value
             )
         
         return router 

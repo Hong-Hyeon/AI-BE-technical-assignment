@@ -9,8 +9,8 @@ from app_factory import create_app
 
 from db import session
 
-# Create FastAPI application using the factory pattern
+# Create FastAPI application using the factory pattern  
 app = create_app()
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000) 
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True) 

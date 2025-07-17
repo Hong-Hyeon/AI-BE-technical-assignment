@@ -8,11 +8,12 @@ This module provides:
 - Shared components for LangGraph workflows
 """
 
-from .state import TalentAnalysisState, merge_dicts
+from .state import TalentAnalysisState, merge_dicts, create_initial_state
 from .base_workflow import BaseWorkflow
 
 __all__ = [
     "TalentAnalysisState",
     "merge_dicts", 
+    "create_initial_state",
     "BaseWorkflow"
 ] 

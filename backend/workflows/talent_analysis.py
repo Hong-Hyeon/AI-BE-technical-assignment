@@ -295,12 +295,12 @@ class TalentAnalysisWorkflow:
         for i, education in enumerate(talent_data.educations):
             self.logger.logger.debug(f"Analyzing education {i + 1}/{len(talent_data.educations)}: {education.school_name}")
             
-            prompt = get_education_prompt(
-                school_name=education.school_name,
-                degree_name=education.degree_name,
-                field_of_study=education.field_of_study,
-                start_end_date=education.start_end_date
-            )
+            prompt = get_education_prompt({
+                "school_name": education.school_name,
+                "degree_name": education.degree_name,
+                "field_of_study": education.field_of_study,
+                "start_end_date": education.start_end_date
+            })
             
             try:
                 llm_start_time = time.time()
@@ -531,12 +531,12 @@ class TalentAnalysisWorkflow:
             experience_tags=experience_tags,
             processing_time=processing_time,
             timestamp=datetime.now(),
-            metadata={
-                "education_analysis": education_analysis,
-                "position_analysis": position_analysis,
-                "vector_search_results": vector_context,
-                "search_queries_used": vector_context.get("search_queries", [])
-            }
+            # metadata={
+            #     "education_analysis": education_analysis,
+            #     "position_analysis": position_analysis,
+            #     "vector_search_results": vector_context,
+            #     "search_queries_used": vector_context.get("search_queries", [])
+            # }
         )
         
         # Log final data transformation

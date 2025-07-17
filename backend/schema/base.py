@@ -10,7 +10,7 @@ This module provides:
 
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Generic, TypeVar, Union
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from enum import Enum
 
 
@@ -85,7 +85,7 @@ class FilterParams(BaseSchema):
     """Base filtering parameters."""
     search: Optional[str] = Field(None, description="Search query")
     
-    @validator('search')
+    @field_validator('search')
     def validate_search(cls, v):
         if v is not None and len(v.strip()) < 2:
             raise ValueError('Search query must be at least 2 characters')
@@ -230,7 +230,7 @@ class FileMetadata(BaseSchema):
     checksum: Optional[str] = Field(None, description="File checksum")
     uploaded_at: datetime = Field(default_factory=datetime.utcnow)
     
-    @validator('size')
+    @field_validator('size')
     def validate_size(cls, v):
         # 16MB limit
         max_size = 16 * 1024 * 1024
@@ -243,7 +243,7 @@ class ApiKeyMixin(BaseSchema):
     """Mixin for API key validation."""
     api_key: Optional[str] = Field(None, description="API key for authentication")
     
-    @validator('api_key')
+    @field_validator('api_key')
     def validate_api_key(cls, v):
         if v and len(v) < 10:
             raise ValueError('API key must be at least 10 characters')
@@ -255,7 +255,7 @@ class ConfigurationMixin(BaseSchema):
     timeout: Optional[int] = Field(30, ge=1, le=300, description="Timeout in seconds")
     max_retries: Optional[int] = Field(3, ge=0, le=10, description="Maximum retry attempts")
     
-    @validator('timeout')
+    @field_validator('timeout')
     def validate_timeout(cls, v):
         if v and (v < 1 or v > 300):
             raise ValueError('Timeout must be between 1 and 300 seconds')

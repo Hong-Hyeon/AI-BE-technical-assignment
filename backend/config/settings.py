@@ -11,7 +11,8 @@ This module provides:
 import os
 from enum import Enum
 from typing import List, Optional, Union
-from pydantic import BaseSettings, Field, validator
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings
 from functools import lru_cache
 
 
@@ -60,8 +61,9 @@ class DatabaseSettings(BaseSettings):
         """Generate async database URL."""
         return f"postgresql+asyncpg://{self.username}:{self.password}@{self.host}:{self.port}/{self.database}"
     
-    class Config:
-        env_prefix = "DB_"
+    model_config = {
+        "env_prefix": "DB_"
+    }
 
 
 class LLMSettings(BaseSettings):
@@ -82,14 +84,15 @@ class LLMSettings(BaseSettings):
     max_retries: int = Field(default=3, description="Maximum retry attempts")
     retry_delay: float = Field(default=1.0, description="Retry delay in seconds")
     
-    @validator('openai_temperature')
+    @field_validator('openai_temperature')
     def validate_temperature(cls, v):
         if not 0 <= v <= 1:
             raise ValueError('Temperature must be between 0 and 1')
         return v
     
-    class Config:
-        env_prefix = "LLM_"
+    model_config = {
+        "env_prefix": "LLM_"
+    }
 
 
 class VectorSearchSettings(BaseSettings):
@@ -108,14 +111,15 @@ class VectorSearchSettings(BaseSettings):
     embedding_model: str = Field(default="text-embedding-ada-002", description="Embedding model")
     embedding_dimensions: int = Field(default=1536, description="Embedding dimensions")
     
-    @validator('similarity_threshold')
+    @field_validator('similarity_threshold')
     def validate_similarity_threshold(cls, v):
         if not 0 <= v <= 1:
             raise ValueError('Similarity threshold must be between 0 and 1')
         return v
     
-    class Config:
-        env_prefix = "VECTOR_"
+    model_config = {
+        "env_prefix": "VECTOR_"
+    }
 
 
 class RedisSettings(BaseSettings):
@@ -140,8 +144,9 @@ class RedisSettings(BaseSettings):
         auth = f":{self.password}@" if self.password else ""
         return f"redis://{auth}{self.host}:{self.port}/{self.database}"
     
-    class Config:
-        env_prefix = "REDIS_"
+    model_config = {
+        "env_prefix": "REDIS_"
+    }
 
 
 class SecuritySettings(BaseSettings):
@@ -163,8 +168,9 @@ class SecuritySettings(BaseSettings):
     rate_limit_requests: int = Field(default=100, description="Rate limit requests per window")
     rate_limit_window: int = Field(default=60, description="Rate limit window in seconds")
     
-    class Config:
-        env_prefix = "SECURITY_"
+    model_config = {
+        "env_prefix": "SECURITY_"
+    }
 
 
 class Settings(BaseSettings):
@@ -207,13 +213,13 @@ class Settings(BaseSettings):
     redis: RedisSettings = Field(default_factory=RedisSettings)
     security: SecuritySettings = Field(default_factory=SecuritySettings)
     
-    @validator('environment', pre=True)
+    @field_validator('environment', mode='before')
     def validate_environment(cls, v):
         if isinstance(v, str):
             return Environment(v.lower())
         return v
     
-    @validator('log_level', pre=True)
+    @field_validator('log_level', mode='before')
     def validate_log_level(cls, v):
         if isinstance(v, str):
             return LogLevel(v.upper())
@@ -242,19 +248,21 @@ class Settings(BaseSettings):
         """Get Redis URL."""
         return self.redis.url
     
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
-        
-        @classmethod
-        def customise_sources(cls, init_settings, env_settings, file_secret_settings):
-            """Customize settings sources priority."""
-            return (
-                init_settings,
-                env_settings,
-                file_secret_settings,
-            )
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "case_sensitive": False,
+        "extra": "ignore"  # Allow extra environment variables to be ignored
+    }
+    
+    @classmethod
+    def customise_sources(cls, init_settings, env_settings, file_secret_settings):
+        """Customize settings sources priority."""
+        return (
+            init_settings,
+            env_settings,
+            file_secret_settings,
+        )
 
 
 @lru_cache()

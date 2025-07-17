@@ -27,8 +27,10 @@ RUN pip install --upgrade pip setuptools wheel uv
 
 RUN mkdir /SEARCHRIGHT
 COPY requirements.txt /SEARCHRIGHT/requirements.txt
+COPY backend/test-requirements.txt /SEARCHRIGHT/test-requirements.txt
 
 RUN uv pip install -r /SEARCHRIGHT/requirements.txt --system
+RUN uv pip install -r /SEARCHRIGHT/test-requirements.txt --system
 
 # Copy application code
 COPY backend/ /SEARCHRIGHT/

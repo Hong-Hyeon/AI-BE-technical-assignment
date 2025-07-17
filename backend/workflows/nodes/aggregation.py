@@ -67,12 +67,12 @@ class AggregationNode:
                 experience_tags=experience_tags,
                 processing_time=processing_time,
                 timestamp=datetime.now(),
-                metadata={
-                    "education_analysis": education_analysis,
-                    "position_analysis": position_analysis,
-                    "vector_search_results": vector_context,
-                    "search_queries_used": vector_context.get("search_queries", [])
-                }
+                # metadata={
+                #     "education_analysis": education_analysis,
+                #     "position_analysis": position_analysis,
+                #     "vector_search_results": vector_context,
+                #     "search_queries_used": vector_context.get("search_queries", [])
+                # }
             )
             
             # Log final data transformation
@@ -120,11 +120,11 @@ class AggregationNode:
                 experience_tags=fallback_tags,
                 processing_time=processing_time,
                 timestamp=datetime.now(),
-                metadata={
-                    "error": str(e),
-                    "education_analysis": education_analysis,
-                    "position_analysis": position_analysis
-                }
+                # metadata={
+                #     "error": str(e),
+                #     "education_analysis": education_analysis,
+                #     "position_analysis": position_analysis
+                # }
             )
             
             return {"analysis_result": analysis_result}

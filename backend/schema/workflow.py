@@ -10,7 +10,7 @@ This module provides:
 
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Union
-from pydantic import Field, validator
+from pydantic import Field, field_validator
 from enum import Enum
 
 from .base import (
@@ -58,7 +58,7 @@ class NodeExecutionStatus(str, Enum):
     RETRYING = "retrying"
 
 
-class WorkflowNodeConfig(BaseSchema, ConfigurationMixin):
+class WorkflowNodeConfig(ConfigurationMixin):
     """Configuration for a workflow node."""
     node_id: str = Field(..., description="Unique node identifier")
     node_type: WorkflowNodeType = Field(..., description="Type of node")
@@ -74,14 +74,14 @@ class WorkflowNodeConfig(BaseSchema, ConfigurationMixin):
     retry_on_failure: bool = Field(True, description="Retry on failure")
     continue_on_failure: bool = Field(False, description="Continue workflow on node failure")
     
-    @validator('node_id')
+    @field_validator('node_id')
     def validate_node_id(cls, v):
         if not v or len(v.strip()) < 2:
             raise ValueError('Node ID must be at least 2 characters')
         return v.strip()
 
 
-class WorkflowConfig(BaseSchema, ConfigurationMixin):
+class WorkflowConfig(ConfigurationMixin):
     """Configuration for workflow execution."""
     workflow_id: str = Field(..., description="Unique workflow identifier")
     workflow_name: str = Field(..., description="Workflow name")
@@ -98,13 +98,13 @@ class WorkflowConfig(BaseSchema, ConfigurationMixin):
     max_execution_time: int = Field(3600, ge=60, le=7200, description="Max execution time in seconds")
     memory_limit_mb: Optional[int] = Field(None, description="Memory limit in MB")
     
-    @validator('workflow_id')
+    @field_validator('workflow_id')
     def validate_workflow_id(cls, v):
         if not v or len(v.strip()) < 3:
             raise ValueError('Workflow ID must be at least 3 characters')
         return v.strip()
     
-    @validator('nodes')
+    @field_validator('nodes')
     def validate_nodes(cls, v):
         if not v:
             raise ValueError('At least one node is required')
@@ -123,7 +123,7 @@ class WorkflowConfig(BaseSchema, ConfigurationMixin):
         return v
 
 
-class NodeExecutionResult(BaseSchema, TimestampMixin):
+class NodeExecutionResult(TimestampMixin):
     """Result of a single node execution."""
     node_id: str = Field(..., description="Node identifier")
     execution_id: str = Field(..., description="Execution identifier")
@@ -148,7 +148,7 @@ class NodeExecutionResult(BaseSchema, TimestampMixin):
     cpu_time_seconds: Optional[float] = Field(None, description="CPU time used")
 
 
-class WorkflowExecutionProgress(BaseSchema, TimestampMixin):
+class WorkflowExecutionProgress(TimestampMixin):
     """Progress tracking for workflow execution."""
     execution_id: str = Field(..., description="Execution identifier")
     workflow_id: str = Field(..., description="Workflow identifier")
@@ -182,8 +182,8 @@ class WorkflowExecutionRequest(BaseRequest, ConfigurationMixin):
     input_data: Dict[str, Any] = Field(..., description="Input data for workflow")
     
     # Execution options
-    execution_mode: str = Field("async", regex="^(sync|async)$", description="Execution mode")
-    priority: str = Field("medium", regex="^(low|medium|high|critical)$", description="Execution priority")
+    execution_mode: str = Field("async", pattern="^(sync|async)$", description="Execution mode")
+    priority: str = Field("medium", pattern="^(low|medium|high|critical)$", description="Execution priority")
     
     # Monitoring options
     enable_detailed_logging: bool = Field(True, description="Enable detailed logging")
@@ -192,7 +192,7 @@ class WorkflowExecutionRequest(BaseRequest, ConfigurationMixin):
     # Callback configuration
     callback_url: Optional[str] = Field(None, description="Webhook URL for completion notification")
     
-    @validator('input_data')
+    @field_validator('input_data')
     def validate_input_data(cls, v):
         if len(str(v)) > 100000:  # 100KB limit
             raise ValueError('Input data cannot exceed 100KB when serialized')
@@ -235,7 +235,7 @@ class WorkflowStatusRequest(BaseRequest):
     execution_id: str = Field(..., description="Execution identifier")
     include_node_details: bool = Field(False, description="Include detailed node results")
     
-    @validator('execution_id')
+    @field_validator('execution_id')
     def validate_execution_id(cls, v):
         if not v or len(v.strip()) < 10:
             raise ValueError('Execution ID must be at least 10 characters')
@@ -263,7 +263,7 @@ class WorkflowCancelRequest(BaseRequest):
     execution_id: str = Field(..., description="Execution identifier")
     reason: Optional[str] = Field(None, description="Cancellation reason")
     
-    @validator('execution_id')
+    @field_validator('execution_id')
     def validate_execution_id(cls, v):
         if not v or len(v.strip()) < 10:
             raise ValueError('Execution ID must be at least 10 characters')
@@ -286,14 +286,14 @@ class WorkflowListRequest(BaseRequest):
     page: int = Field(1, ge=1, description="Page number")
     page_size: int = Field(20, ge=1, le=100, description="Items per page")
     
-    @validator('date_from', 'date_to')
+    @field_validator('date_from', 'date_to')
     def validate_dates(cls, v):
         if v and v > datetime.utcnow():
             raise ValueError('Date cannot be in the future')
         return v
 
 
-class WorkflowExecutionSummary(BaseSchema, TimestampMixin):
+class WorkflowExecutionSummary(TimestampMixin):
     """Summary of workflow execution."""
     execution_id: str = Field(..., description="Execution identifier")
     workflow_id: str = Field(..., description="Workflow identifier")
@@ -387,13 +387,13 @@ class WorkflowMetricsRequest(BaseRequest):
     date_to: datetime = Field(..., description="Metrics period end")
     include_node_metrics: bool = Field(True, description="Include per-node metrics")
     
-    @validator('date_from', 'date_to')
+    @field_validator('date_from', 'date_to')
     def validate_dates(cls, v):
         if v > datetime.utcnow():
             raise ValueError('Date cannot be in the future')
         return v
     
-    @validator('date_to')
+    @field_validator('date_to')
     def validate_date_range(cls, v, values):
         date_from = values.get('date_from')
         if date_from and v <= date_from:

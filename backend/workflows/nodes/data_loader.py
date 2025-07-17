@@ -84,16 +84,16 @@ class DataLoaderNode:
             
             # Log successful completion
             node_duration = time.time() - node_start_time
-                         self.logger.log_node_complete(
-                 "load_talent_data", 
-                 node_duration,
-                 {
-                     "data_loaded": f"{len(talent_data.educations)} educations, "
-                                    f"{len(talent_data.positions)} positions, "
-                                    f"{len(talent_data.skills)} skills",
-                     "talent_name": f"{talent_data.first_name} {talent_data.last_name}"
-                 }
-             )
+            self.logger.log_node_complete(
+                "load_talent_data", 
+                node_duration,
+                {
+                    "data_loaded": f"{len(talent_data.educations)} educations, "
+                                   f"{len(talent_data.positions)} positions, "
+                                   f"{len(talent_data.skills)} skills",
+                    "talent_name": f"{talent_data.first_name} {talent_data.last_name}"
+                }
+            )
             
             return {"talent_data": talent_data}
             

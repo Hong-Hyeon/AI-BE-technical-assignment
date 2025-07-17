@@ -71,4 +71,4 @@ class AnalysisResult(BaseModel):
     experience_tags: List[ExperienceTag]
     processing_time: float
     timestamp: datetime = Field(default_factory=datetime.now)
-    metadata: Dict[str, Any] = Field(default_factory=dict) 
+    # metadata: Dict[str, Any] = Field(default_factory=dict) 
