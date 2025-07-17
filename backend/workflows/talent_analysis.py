@@ -5,6 +5,7 @@ import asyncio
 from typing import Dict, Any, List, TypedDict, Annotated
 from datetime import datetime
 import time
+import json
 
 from langgraph.graph import StateGraph, END
 from langchain_openai import ChatOpenAI
@@ -14,6 +15,14 @@ from models.talent import TalentData, AnalysisResult, ExperienceTag
 from db.session import SessionLocal
 from models.company import Company, CompanyNews
 from factories.vector_search_factory import VectorSearchManager
+from factories.prompt_factory import (
+    talent_analysis_prompt_factory,
+    get_education_prompt,
+    get_position_prompt,
+    get_aggregation_prompt,
+    PromptCategory
+)
+from config.logging_config import WorkflowLogger
 
 
 def merge_dicts(left: Dict[str, Any], right: Dict[str, Any]) -> Dict[str, Any]:
@@ -49,6 +58,7 @@ class TalentAnalysisWorkflow:
     """LangGraph workflow for talent analysis."""
     
     def __init__(self):
+        self.logger = WorkflowLogger("TalentAnalysis")
         self.graph = self._build_graph()
     
     def _build_graph(self) -> StateGraph:
@@ -81,47 +91,85 @@ class TalentAnalysisWorkflow:
     
     async def _load_talent_data(self, state: TalentAnalysisState) -> Dict[str, Any]:
         """Load talent data from data source."""
+        node_start_time = time.time()
+        self.logger.log_node_start("load_talent_data", {"talent_id": state["talent_id"]})
+        
         from factories.data_source_factory import DefaultDataSourceFactory, DataSourceManager
         
         try:
             # Initialize data source manager
+            self.logger.logger.debug("Initializing data source manager...")
             data_factory = DefaultDataSourceFactory("./example_datas")
             data_manager = DataSourceManager(data_factory)
             
             # Load talent data
+            self.logger.logger.debug(f"Loading talent data for ID: {state['talent_id']}")
             talent_data = data_manager.get_talent_data(state["talent_id"])
+            
+            # Log data transformation info
+            self.logger.log_data_transformation(
+                "talent_data_loading",
+                {"talent_id": state["talent_id"]},
+                {
+                    "education_count": len(talent_data.educations),
+                    "position_count": len(talent_data.positions),
+                    "skills_count": len(talent_data.skills)
+                }
+            )
+            
+            node_duration = time.time() - node_start_time
+            self.logger.log_node_complete(
+                "load_talent_data", 
+                node_duration,
+                {"data_loaded": f"{len(talent_data.educations)} educations, {len(talent_data.positions)} positions"}
+            )
             
             return {"talent_data": talent_data}
             
         except Exception as e:
+            self.logger.log_node_error("load_talent_data", e, {"talent_id": state["talent_id"]})
             raise ValueError(f"Failed to load talent data: {str(e)}")
     
     async def _preprocess_context(self, state: TalentAnalysisState) -> Dict[str, Any]:
         """Preprocess context data from database."""
+        node_start_time = time.time()
+        talent_data = state["talent_data"]
+        
+        self.logger.log_node_start(
+            "preprocess_context", 
+            {"talent_id": state["talent_id"], "positions_to_process": len(talent_data.positions)}
+        )
+        
         from factories.data_source_factory import DefaultDataSourceFactory, DataSourceManager
         
-        talent_data = state["talent_data"]
         company_data = {}
         news_data = {}
         
         try:
             # Initialize data source manager
+            self.logger.logger.debug("Initializing data source manager for context preprocessing...")
             data_factory = DefaultDataSourceFactory("./example_datas")
             data_manager = DataSourceManager(data_factory)
             
             # Collect company and news data for each position
-            for position in talent_data.positions:
+            for i, position in enumerate(talent_data.positions):
+                self.logger.logger.debug(f"Processing position {i + 1}/{len(talent_data.positions)}: {position.company_name}")
+                
                 try:
                     company_info = data_manager.get_company_data(position.company_name)
                     company_data[position.company_name] = company_info
+                    self.logger.logger.debug(f"✅ Found company data for {position.company_name}")
                     
                     # Get news data
                     try:
                         news_info = data_manager.get_news_data(position.company_name)
                         news_data[position.company_name] = news_info
+                        self.logger.logger.debug(f"✅ Found news data for {position.company_name}")
                     except ValueError:
+                        self.logger.logger.debug(f"⚠️ No news data available for {position.company_name}")
                         pass  # No news data available
-                except Exception:
+                except Exception as e:
+                    self.logger.logger.debug(f"⚠️ No company data available for {position.company_name}: {str(e)}")
                     pass  # No company data available
             
             preprocessed_context = {
@@ -129,128 +177,289 @@ class TalentAnalysisWorkflow:
                 "news": news_data
             }
             
+            # Log data transformation info
+            self.logger.log_data_transformation(
+                "context_preprocessing",
+                {"positions_processed": len(talent_data.positions)},
+                {
+                    "companies_found": len(company_data),
+                    "news_datasets_found": len(news_data),
+                    "company_names": list(company_data.keys())
+                }
+            )
+            
+            node_duration = time.time() - node_start_time
+            self.logger.log_node_complete(
+                "preprocess_context", 
+                node_duration,
+                {"companies_loaded": len(company_data), "news_datasets": len(news_data)}
+            )
+            
             return {"preprocessed_context": preprocessed_context}
             
         except Exception as e:
-            print(f"Context preprocessing warning: {e}")
+            self.logger.log_node_error("preprocess_context", e, {"talent_id": state["talent_id"]})
+            self.logger.logger.warning(f"Context preprocessing warning: {e}")
             return {"preprocessed_context": {"companies": {}, "news": {}}}
     
     async def _vector_search(self, state: TalentAnalysisState) -> Dict[str, Any]:
         """Perform vector search for semantically relevant context."""
+        node_start_time = time.time()
         talent_data = state["talent_data"]
+        
+        self.logger.log_node_start(
+            "vector_search", 
+            {
+                "talent_id": state["talent_id"],
+                "educations": len(talent_data.educations),
+                "positions": len(talent_data.positions),
+                "skills": len(talent_data.skills)
+            }
+        )
         
         try:
             # Initialize vector search manager
+            search_start_time = time.time()
+            self.logger.logger.debug("Initializing vector search manager...")
             vector_search_manager = VectorSearchManager()
             
             # Convert talent data to dict for vector search
+            self.logger.logger.debug("Converting talent data for vector search...")
             talent_dict = {
                 "educations": [edu.dict() for edu in talent_data.educations],
                 "positions": [pos.dict() for pos in talent_data.positions],
                 "skills": talent_data.skills
             }
             
+            # Log input data transformation
+            self.logger.log_data_transformation(
+                "vector_search_input",
+                {"raw_talent_data": f"{len(talent_data.educations)} educations, {len(talent_data.positions)} positions"},
+                {"search_ready_data": "Converted to dict format for vector search"}
+            )
+            
             # Perform vector search
+            self.logger.logger.debug("Performing vector search for talent context...")
             vector_results = vector_search_manager.search_talent_context(talent_dict)
+            search_time = time.time() - search_start_time
+            
+            # Log vector search results
+            results_count = len(vector_results.get("companies", [])) + len(vector_results.get("news", []))
+            self.logger.log_vector_search(
+                {
+                    "search_queries": vector_results.get("search_queries", []),
+                    "input_data_types": list(talent_dict.keys())
+                },
+                results_count,
+                search_time
+            )
             
             # Close resources
             vector_search_manager.close()
             
+            node_duration = time.time() - node_start_time
+            self.logger.log_node_complete(
+                "vector_search", 
+                node_duration,
+                {
+                    "companies_found": len(vector_results.get("companies", [])),
+                    "news_found": len(vector_results.get("news", [])),
+                    "queries_executed": len(vector_results.get("search_queries", []))
+                }
+            )
+            
             return {"vector_search_results": vector_results}
             
         except Exception as e:
-            print(f"Vector search warning: {e}")
+            self.logger.log_node_error("vector_search", e, {"talent_id": state["talent_id"]})
+            self.logger.logger.warning(f"Vector search warning: {e}")
             return {"vector_search_results": {"companies": [], "news": [], "search_queries": []}}
     
     async def _analyze_education(self, state: TalentAnalysisState) -> Dict[str, Any]:
         """Analyze education background in parallel."""
+        node_start_time = time.time()
         talent_data = state["talent_data"]
         llm_model = state["llm_model"]
         
+        self.logger.log_node_start(
+            "analyze_education", 
+            {
+                "talent_id": state["talent_id"],
+                "educations_to_analyze": len(talent_data.educations),
+                "schools": [edu.school_name for edu in talent_data.educations]
+            }
+        )
+        
         education_analysis = []
         
-        for education in talent_data.educations:
-            prompt = f"""
-            다음 교육 정보를 분석하여 대학교의 등급을 분류해주세요:
+        for i, education in enumerate(talent_data.educations):
+            self.logger.logger.debug(f"Analyzing education {i + 1}/{len(talent_data.educations)}: {education.school_name}")
             
-            학교명: {education.school_name}
-            학위: {education.degree_name}
-            전공: {education.field_of_study}
-            기간: {education.start_end_date}
-            
-            대학교를 다음 기준으로 분류해주세요:
-            - 상위권: SKY(서울대, 연세대, 고려대), KAIST, POSTECH 등 최상위 대학
-            - 중위권: 지방 국립대, 주요 사립대 (성균관대, 한양대, 중앙대, 경희대 등)
-            - 하위권: 기타 대학
-            
-            응답 형식:
-            {{
-                "tier": "상위권/중위권/하위권",
-                "confidence": 0.9,
-                "reasoning": "분류 근거"
-            }}
-            """
+            prompt = get_education_prompt(
+                school_name=education.school_name,
+                degree_name=education.degree_name,
+                field_of_study=education.field_of_study,
+                start_end_date=education.start_end_date
+            )
             
             try:
+                llm_start_time = time.time()
                 response = await llm_model.ainvoke([HumanMessage(content=prompt)])
+                llm_time = time.time() - llm_start_time
+                
+                # Log LLM call
+                self.logger.log_llm_call(
+                    "analyze_education",
+                    getattr(llm_model, 'model_name', 'unknown'),
+                    len(prompt),
+                    len(response.content),
+                    llm_time
+                )
+                
                 education_analysis.append({
                     "school": education.school_name,
                     "analysis": response.content
                 })
+                
+                self.logger.logger.debug(f"✅ Completed analysis for {education.school_name}")
+                
             except Exception as e:
+                self.logger.logger.error(f"❌ Failed to analyze {education.school_name}: {str(e)}")
                 education_analysis.append({
                     "school": education.school_name,
                     "analysis": f"분석 실패: {str(e)}"
                 })
         
+        # Log data transformation
+        successful_analyses = len([a for a in education_analysis if "분석 실패" not in a["analysis"]])
+        self.logger.log_data_transformation(
+            "education_analysis",
+            {"input_educations": len(talent_data.educations)},
+            {"successful_analyses": successful_analyses, "failed_analyses": len(education_analysis) - successful_analyses}
+        )
+        
         # Return only the specific key this node is responsible for
-        return {
+        result = {
             "education_analysis": {
                 "results": education_analysis,
                 "summary": self._summarize_education_analysis(education_analysis)
             }
         }
+        
+        node_duration = time.time() - node_start_time
+        self.logger.log_node_complete(
+            "analyze_education", 
+            node_duration,
+            {"educations_analyzed": len(education_analysis), "successful": successful_analyses}
+        )
+        
+        return result
     
     async def _analyze_positions(self, state: TalentAnalysisState) -> Dict[str, Any]:
         """Analyze work positions with company context and vector search results."""
+        node_start_time = time.time()
         talent_data = state["talent_data"]
         preprocessed_context = state.get("preprocessed_context", {})
         llm_model = state["llm_model"]
         
+        self.logger.log_node_start(
+            "analyze_positions", 
+            {
+                "talent_id": state["talent_id"],
+                "positions_to_analyze": len(talent_data.positions),
+                "companies": [pos.company_name for pos in talent_data.positions]
+            }
+        )
+        
         position_analysis = []
         
-        for position in talent_data.positions:
+        for i, position in enumerate(talent_data.positions):
+            self.logger.logger.debug(f"Analyzing position {i + 1}/{len(talent_data.positions)}: {position.company_name} - {position.title}")
+            
             # Get company and news data from preprocessing
             company_data = preprocessed_context.get("companies", {}).get(position.company_name, {})
             news_data = preprocessed_context.get("news", {}).get(position.company_name, {})
             
-            # Use the existing position analysis prompt (temporarily)
-            prompt = self._build_position_analysis_prompt(position, company_data, news_data)
+            # Log context availability
+            context_info = {
+                "has_company_data": bool(company_data),
+                "has_news_data": bool(news_data)
+            }
+            self.logger.logger.debug(f"Context for {position.company_name}: {context_info}")
+            
+            # Prepare context templates
+            company_context = talent_analysis_prompt_factory.get_company_context_template(company_data)
+            news_context = talent_analysis_prompt_factory.get_news_context_template(news_data)
+            
+            # Use the position analysis prompt from factory
+            prompt = get_position_prompt({
+                "title": position.title,
+                "company_name": position.company_name,
+                "description": position.description,
+                "start_end_date": position.start_end_date,
+                "company_location": position.company_location,
+                "company_context": company_context,
+                "news_context": news_context
+            })
             
             try:
+                llm_start_time = time.time()
                 response = await llm_model.ainvoke([HumanMessage(content=prompt)])
+                llm_time = time.time() - llm_start_time
+                
+                # Log LLM call
+                self.logger.log_llm_call(
+                    "analyze_positions",
+                    getattr(llm_model, 'model_name', 'unknown'),
+                    len(prompt),
+                    len(response.content),
+                    llm_time
+                )
+                
                 position_analysis.append({
                     "company": position.company_name,
                     "position": position.title,
                     "analysis": response.content
                 })
+                
+                self.logger.logger.debug(f"✅ Completed analysis for {position.company_name}")
+                
             except Exception as e:
+                self.logger.logger.error(f"❌ Failed to analyze {position.company_name}: {str(e)}")
                 position_analysis.append({
                     "company": position.company_name,
                     "position": position.title,
                     "analysis": f"분석 실패: {str(e)}"
                 })
         
+        # Log data transformation
+        successful_analyses = len([a for a in position_analysis if "분석 실패" not in a["analysis"]])
+        self.logger.log_data_transformation(
+            "position_analysis",
+            {"input_positions": len(talent_data.positions)},
+            {"successful_analyses": successful_analyses, "failed_analyses": len(position_analysis) - successful_analyses}
+        )
+        
         # Return only the specific key this node is responsible for
-        return {
+        result = {
             "position_analysis": {
                 "results": position_analysis,
                 "summary": self._summarize_position_analysis(position_analysis)
             }
         }
+        
+        node_duration = time.time() - node_start_time
+        self.logger.log_node_complete(
+            "analyze_positions", 
+            node_duration,
+            {"positions_analyzed": len(position_analysis), "successful": successful_analyses}
+        )
+        
+        return result
     
     async def _aggregate_results(self, state: TalentAnalysisState) -> Dict[str, Any]:
         """Aggregate education and position analyses into final summary."""
+        node_start_time = time.time()
         talent_data = state["talent_data"]
         education_analysis = state.get("education_analysis", {})
         position_analysis = state.get("position_analysis", {})
@@ -258,53 +467,52 @@ class TalentAnalysisWorkflow:
         llm_model = state["llm_model"]
         processing_start_time = state["processing_start_time"]
         
+        self.logger.log_node_start(
+            "aggregate_results", 
+            {
+                "talent_id": state["talent_id"],
+                "has_education_analysis": bool(education_analysis),
+                "has_position_analysis": bool(position_analysis),
+                "vector_context_items": len(vector_context.get("companies", [])) + len(vector_context.get("news", []))
+            }
+        )
+        
         # Both analyses should be complete when this node executes due to LangGraph dependencies
+        self.logger.logger.debug("Aggregating education and position analyses...")
         
         # Create comprehensive summary prompt with vector search context
-        prompt = f"""
-        다음 인재의 교육과 경력을 종합적으로 분석하여 핵심 태그와 요약을 생성해주세요:
-        
-        인재 정보:
-        - 이름: {talent_data.first_name} {talent_data.last_name}
-        - 헤드라인: {talent_data.headline}
-        - 요약: {talent_data.summary}
-        - 스킬: {', '.join(talent_data.skills)}
-        
-        교육 분석:
-        {education_analysis.get('summary', '교육 정보 없음')}
-        
-        경력 분석:
-        {position_analysis.get('summary', '경력 정보 없음')}
-        
-        벡터 검색으로 발견된 관련 컨텍스트:
-        - 검색된 관련 회사 수: {len(vector_context.get('companies', []))}
-        - 검색된 관련 뉴스 수: {len(vector_context.get('news', []))}
-        
-        다음 형식으로 핵심 경험 태그들을 생성해주세요:
-        
-        예시 태그들:
-        - 상위권대학교 (구체적 학교명)
-        - 성장기스타트업 경험 (회사명과 성장 지표)
-        - 리더십 (구체적 직책/역할)
-        - 대용량데이터처리경험 (관련 회사/프로젝트)
-        - IPO (관련 회사와 시기)
-        - M&A 경험 (관련 거래)
-        - 신규 투자 유치 경험 (회사명과 역할)
-        
-        각 태그에 대해 다음 JSON 형식으로 응답해주세요:
-        [
-            {{
-                "tag": "태그명",
-                "confidence": 0.9,
-                "reasoning": "이 태그를 부여한 구체적인 근거"
-            }}
-        ]
-        """
+        prompt = get_aggregation_prompt({
+            "first_name": talent_data.first_name,
+            "last_name": talent_data.last_name,
+            "headline": talent_data.headline,
+            "summary": talent_data.summary,
+            "skills": ', '.join(talent_data.skills),
+            "education_analysis": education_analysis.get('summary', '교육 정보 없음'),
+            "position_analysis": position_analysis.get('summary', '경력 정보 없음'),
+            "companies_count": len(vector_context.get('companies', [])),
+            "news_count": len(vector_context.get('news', []))
+        })
         
         try:
+            self.logger.logger.debug("Invoking LLM for final experience tag generation...")
+            llm_start_time = time.time()
             response = await llm_model.ainvoke([HumanMessage(content=prompt)])
+            llm_time = time.time() - llm_start_time
+            
+            # Log LLM call
+            self.logger.log_llm_call(
+                "aggregate_results",
+                getattr(llm_model, 'model_name', 'unknown'),
+                len(prompt),
+                len(response.content),
+                llm_time
+            )
+            
+            self.logger.logger.debug("Parsing experience tags from LLM response...")
             experience_tags = self._parse_experience_tags(response.content)
+            
         except Exception as e:
+            self.logger.logger.error(f"❌ LLM failed during aggregation: {str(e)}")
             # Fallback tags if LLM fails
             experience_tags = [
                 ExperienceTag(
@@ -317,6 +525,7 @@ class TalentAnalysisWorkflow:
         # Create final analysis result
         processing_time = time.time() - processing_start_time
         
+        self.logger.logger.debug(f"Creating final analysis result with {len(experience_tags)} tags...")
         analysis_result = AnalysisResult(
             talent_id=f"{talent_data.first_name}_{talent_data.last_name}",
             experience_tags=experience_tags,
@@ -330,63 +539,32 @@ class TalentAnalysisWorkflow:
             }
         )
         
+        # Log final data transformation
+        self.logger.log_data_transformation(
+            "final_aggregation",
+            {
+                "education_results": len(education_analysis.get("results", [])),
+                "position_results": len(position_analysis.get("results", [])),
+                "vector_items": len(vector_context.get("companies", [])) + len(vector_context.get("news", []))
+            },
+            {
+                "experience_tags_generated": len(experience_tags),
+                "processing_time_seconds": processing_time
+            }
+        )
+        
+        node_duration = time.time() - node_start_time
+        self.logger.log_node_complete(
+            "aggregate_results", 
+            node_duration,
+            {
+                "tags_generated": len(experience_tags),
+                "total_processing_time": processing_time
+            }
+        )
+        
         # Return only the analysis result
         return {"analysis_result": analysis_result}
-    
-    def _build_position_analysis_prompt(self, position, company_data, news_data) -> str:
-        """Build detailed prompt for position analysis."""
-        prompt = f"""
-        다음 경력을 회사의 성장 단계와 시장 상황을 고려하여 분석해주세요:
-        
-        포지션 정보:
-        - 직책: {position.title}
-        - 회사: {position.company_name}
-        - 설명: {position.description}
-        - 기간: {position.start_end_date}
-        - 위치: {position.company_location}
-        """
-        
-        # Add company context if available
-        if company_data:
-            prompt += f"""
-        
-        회사 정보:
-        - 회사명: {getattr(company_data, 'name', 'N/A')}
-        - 산업: {getattr(company_data, 'industry', 'N/A')}
-        - 설립년도: {getattr(company_data, 'founded_year', 'N/A')}
-        - 직원수: {getattr(company_data, 'employee_count', 'N/A')}
-        - 펀딩 규모: {getattr(company_data, 'funding_amount', 'N/A')}
-        """
-        
-        # Add news context if available
-        if news_data and news_data.get('news_data'):
-            prompt += f"""
-        
-        관련 뉴스 (최근 {news_data.get('news_count', 0)}건):
-        """
-            for news in news_data['news_data'][:5]:  # Limit to recent 5 news
-                prompt += f"- {getattr(news, 'title', '')} ({getattr(news, 'date', '')})\n"
-        
-        prompt += """
-        
-        다음 관점에서 분석해주세요:
-        1. 회사의 성장 단계 (스타트업/성장기/성숙기)
-        2. 시장에서의 위치와 경쟁력
-        3. 해당 시기의 회사 상황 (투자, IPO, M&A 등)
-        4. 직책의 중요도와 리더십 역할
-        5. 기술적/비즈니스적 임팩트
-        
-        응답 형식:
-        {{
-            "company_stage": "성장 단계",
-            "leadership_role": "리더십 여부와 수준",
-            "market_timing": "시장 타이밍 분석",
-            "key_achievements": "주요 성과 추정",
-            "confidence": 0.8
-        }}
-        """
-        
-        return prompt
     
     def _summarize_education_analysis(self, education_analysis: List[Dict]) -> str:
         """Summarize education analysis results."""
@@ -413,7 +591,6 @@ class TalentAnalysisWorkflow:
     def _parse_experience_tags(self, llm_response: str) -> List[ExperienceTag]:
         """Parse LLM response into ExperienceTag objects."""
         try:
-            import json
             # Try to extract JSON from the response
             start_idx = llm_response.find('[')
             end_idx = llm_response.rfind(']') + 1
@@ -449,28 +626,63 @@ class TalentAnalysisWorkflow:
         llm_model
     ) -> AnalysisResult:
         """Run the complete talent analysis workflow with integrated preprocessing and vector search."""
-        # Extract the LangChain ChatOpenAI model if it's wrapped
-        if hasattr(llm_model, 'get_langchain_model'):
-            langchain_model = llm_model.get_langchain_model()
-        else:
-            langchain_model = llm_model
-            
-        initial_state = TalentAnalysisState(
-            talent_id=talent_id,
-            llm_model=langchain_model,
-            talent_data=None,  # Will be filled by load_talent_data node
-            preprocessed_context={},
-            vector_search_results={},
-            education_analysis={},
-            position_analysis={},
-            analysis_result=None,
-            processing_start_time=time.time()
+        workflow_start_time = time.time()
+        
+        # Log workflow start
+        self.logger.log_workflow_start(
+            talent_id, 
+            {
+                "llm_model": getattr(llm_model, 'model_name', str(type(llm_model))),
+                "workflow_nodes": ["load_talent_data", "preprocess_context", "vector_search", "analyze_education", "analyze_positions", "aggregate_results"]
+            }
         )
         
-        # Run the workflow
-        final_state = await self.graph.ainvoke(initial_state)
-        
-        return final_state["analysis_result"]
+        try:
+            # Extract the LangChain ChatOpenAI model if it's wrapped
+            if hasattr(llm_model, 'get_langchain_model'):
+                langchain_model = llm_model.get_langchain_model()
+                self.logger.logger.debug("Extracted LangChain model from wrapper")
+            else:
+                langchain_model = llm_model
+                self.logger.logger.debug("Using model directly")
+                
+            initial_state = TalentAnalysisState(
+                talent_id=talent_id,
+                llm_model=langchain_model,
+                talent_data=None,  # Will be filled by load_talent_data node
+                preprocessed_context={},
+                vector_search_results={},
+                education_analysis={},
+                position_analysis={},
+                analysis_result=None,
+                processing_start_time=time.time()
+            )
+            
+            self.logger.logger.info("🔄 Starting LangGraph workflow execution...")
+            
+            # Run the workflow
+            final_state = await self.graph.ainvoke(initial_state)
+            
+            # Calculate total workflow time
+            total_duration = time.time() - workflow_start_time
+            analysis_result = final_state["analysis_result"]
+            
+            # Log workflow completion with summary
+            result_summary = {
+                "experience_tags_count": len(analysis_result.experience_tags),
+                "top_tags": [tag.tag for tag in analysis_result.experience_tags[:3]],  # Top 3 tags
+                "processing_time": analysis_result.processing_time,
+                "workflow_total_time": total_duration
+            }
+            
+            self.logger.log_workflow_complete(talent_id, total_duration, result_summary)
+            
+            return analysis_result
+            
+        except Exception as e:
+            total_duration = time.time() - workflow_start_time
+            self.logger.logger.error(f"💥 Workflow failed for talent_id {talent_id} after {total_duration:.2f}s: {str(e)}", exc_info=True)
+            raise
 
 
 # Create a singleton instance
