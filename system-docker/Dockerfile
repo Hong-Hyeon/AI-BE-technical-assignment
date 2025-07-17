@@ -12,9 +12,7 @@ RUN apt-get update && \
     gcc \
     pkg-config \
     python3-dev \
-    gir1.2-gtk-3.0 \
     locales \
-    wget \
     nano && \
     localedef -f UTF-8 -i ko_KR ko_KR.UTF-8 && \
     update-locale LANG=ko_KR.UTF-8 && \
